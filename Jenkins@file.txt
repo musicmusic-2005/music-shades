@@ -1,0 +1,55 @@
+pipeline {
+    agent any
+
+    environment {
+        DOCKER_IMAGE = "yourdockerhubusername/myapp"
+        DOCKER_TAG = "latest"
+        SERVER_IP = "your_server_ip"
+    }
+
+    stages {
+
+        stage('Clone Code') {
+            steps {
+                git 'https://github.com/yourrepo.git'
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                script {
+                    docker.build("${DOCKER_IMAGE}:${DOCKER_TAG}")
+                }
+            }
+        }
+
+        stage('Login to Docker Hub') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'USER', passwordVariable: 'PASS')]) {
+                    sh "docker login -u $USER -p $PASS"
+                }
+            }
+        }
+
+        stage('Push Image to Docker Hub') {
+            steps {
+                sh "docker push ${DOCKER_IMAGE}:${DOCKER_TAG}"
+            }
+        }
+
+        stage('Deploy to Server') {
+            steps {
+                withCredentials([sshUserPrivateKey(credentialsId: 'server-ssh', keyFileVariable: 'SSH_KEY')]) {
+                    sh """
+                    ssh -i $SSH_KEY -o StrictHostKeyChecking=no ubuntu@${SERVER_IP} '
+                    docker pull ${DOCKER_IMAGE}:${DOCKER_TAG} &&
+                    docker stop myapp || true &&
+                    docker rm myapp || true &&
+                    docker run -d -p 80:80 --name myapp ${DOCKER_IMAGE}:${DOCKER_TAG}
+                    '
+                    """
+                }
+            }
+        }
+    }
+}
